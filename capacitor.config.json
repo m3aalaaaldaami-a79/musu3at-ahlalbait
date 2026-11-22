@@ -1,0 +1,9 @@
+{
+  "appId": "com.studio.myapp",
+  "appName": "موسوعة اهل البيت",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": true,
+    "backgroundColor": "#0f172a"
+  }
+}
