@@ -1,0 +1,101 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Add Android Platform
+        run: npx cap add android
+
+      - name: Generate App Icons (if resources/icon.png exists)
+        run: |
+          if [ -f "resources/icon.png" ]; then
+            echo "Generating Android icons from resources/icon.png..."
+            npx capacitor-assets generate --android --iconBackgroundColor '#0f172a' --splashBackgroundColor '#0f172a'
+          else
+            echo "No custom resources/icon.png found, using default Capacitor icon."
+          fi
+
+      - name: Apply Version, Orientation & Theme Settings
+        run: |
+          node -e '
+            const fs = require("fs");
+
+            // 1. Update versionCode & versionName in android/app/build.gradle
+            const gradlePath = "android/app/build.gradle";
+            if (fs.existsSync(gradlePath)) {
+              let gradle = fs.readFileSync(gradlePath, "utf8");
+              gradle = gradle.replace(/versionCode\s+\d+/, "versionCode 1");
+              gradle = gradle.replace(/versionName\s+"[^"]*"/, "versionName \"1.0.0\"");
+              fs.writeFileSync(gradlePath, gradle, "utf8");
+            }
+
+            // 2. Update screenOrientation in AndroidManifest.xml (if specified)
+            const orientation = "portrait";
+            const manifestPath = "android/app/src/main/AndroidManifest.xml";
+            if (orientation !== "unspecified" && fs.existsSync(manifestPath)) {
+              let manifest = fs.readFileSync(manifestPath, "utf8");
+              if (!manifest.includes("android:screenOrientation")) {
+                manifest = manifest.replace(
+                  /<activity([^>]*)>/,
+                  "<activity$1 android:screenOrientation=\"" + orientation + "\">"
+                );
+                fs.writeFileSync(manifestPath, manifest, "utf8");
+              }
+            }
+
+            // 3. Apply statusBarColor in styles.xml
+            const stylesPath = "android/app/src/main/res/values/styles.xml";
+            if (fs.existsSync(stylesPath)) {
+              let styles = fs.readFileSync(stylesPath, "utf8");
+              if (!styles.includes("android:statusBarColor")) {
+                styles = styles.replace(
+                  /<style name="AppTheme\.NoActionBar"[^>]*>/,
+                  "$&\n        <item name=\"android:statusBarColor\">#0f172a</item>"
+                );
+                fs.writeFileSync(stylesPath, styles, "utf8");
+              }
+            }
+          '
+
+      - name: Sync Web Assets with Capacitor
+        run: npx cap sync android
+
+      - name: Build Android Debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: myapp-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
